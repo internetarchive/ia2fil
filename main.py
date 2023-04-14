@@ -116,7 +116,7 @@ def load_spade(id):
 
 @st.cache_data(ttl=3600, show_spinner="Loading Oracle Results...")
 def load_oracle():
-    with psycopg2.connect(database=st.secrets.DBNAME, host=st.secrets.DBHOST, user=st.secrets.DBUSER, password=st.secrets.DBPASS, port=st.secrets.DBPORT) as conn:
+    with psycopg2.connect(database=os.getenv("DBNAME"), host=os.getenv("DBHOST"), user=os.getenv("DBUSER"), password=os.getenv("DBPASS"), port=os.getenv("DBPORT")) as conn:
         conn.cursor().execute(DBSP)
         r1 = pd.read_sql_query(DBQ1, conn)
         r2 = pd.read_sql_query(DBQ2, conn)

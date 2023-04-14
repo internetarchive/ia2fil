@@ -1,14 +1,14 @@
 services:
   filecoin:
-    image: filecoin
+    image: ia2fil
     build: ./
+    env_file: .env
     networks:
       - caddy
     volumes:
-      - ./:/app
       - ~/.config/internetarchive/ia.ini:/root/.config/internetarchive/ia.ini
     labels:
-      caddy: filecoin.sawood-dev.us.archive.org
+      caddy: ${PROXYHOST}
       caddy.reverse_proxy: "{{upstreams 8501}}"
 
 networks:

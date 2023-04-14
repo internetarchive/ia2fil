@@ -1,4 +1,4 @@
-#!/usr/bin/env -S docker image build -t filecoin . -f
+#!/usr/bin/env -S docker image build -t ia2fil . -f
 
 FROM        python:3
 
