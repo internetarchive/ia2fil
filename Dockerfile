@@ -12,6 +12,7 @@ RUN         pip install \
               fsspec \
               pandas \
               plotly \
+              psycopg2 \
               streamlit
 
 COPY        . ./

@@ -7,6 +7,8 @@ import random
 from collections import defaultdict
 from datetime import datetime, date, timedelta
 
+import psycopg2
+
 import altair as alt
 import streamlit as st
 import pandas as pd
@@ -47,8 +49,33 @@ FINISHED = {
     "prelingerhomemovies"
 }
 
+DBSP = "SET SEARCH_PATH = naive;"
+DBQ1 = """
+SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
+(
+ SELECT DISTINCT(piece_id), claimed_log2_size FROM published_deals
+	WHERE client_id = '01131298'
+  AND (status = 'active' or status = 'published')
+  --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
+) sq
+;
+"""
+DBQ2 = """
+SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
+(
+ SELECT DISTINCT(decoded_label), claimed_log2_size FROM published_deals
+	WHERE provider_id = '02011071'
+  AND (status = 'active' or status = 'published')
+  /* AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00') */ /* uncomment this to search before stated date */
+) sq
+;
+"""
+DBQ3 = """
+select provider_id, count(1) as cnt from naive.published_deals where client_id = '01131298' group by provider_id order by cnt desc;
+"""
 
-@st.cache_data(ttl=3600, show_spinner="Loading metadata...")
+
+@st.cache_data(ttl=3600, show_spinner="Loading File Metadata...")
 def load_data(col):
 #    sr = search_items(f"collection:{col} format:(Content Addressable aRchive) -format:Trigger", params={"service": "files"}, fields=["identifier,format,mtime,size,root_cid"])
     sr = search_items(f"collection:{col} format:(Content Addressable aRchive) -format:Log -format:Trigger", params={"service": "files"}, fields=["identifier,name,mtime,size"])
@@ -72,6 +99,7 @@ def load_data(col):
     return pd.DataFrame.from_dict(fl, orient="index").reset_index().rename(columns={"index": "File"})[["Collection", "Item", "File", "Size", "CARTime"]]
 
 
+@st.cache_data(ttl=300, show_spinner="Loading Sapde CSV...")
 def load_spade(id):
     download(identifier=id, destdir=SPADECACHE, no_directory=True, checksum=True)
     csvf = glob.glob(os.path.join(SPADECACHE, "*.csv"))
@@ -84,6 +112,22 @@ def load_spade(id):
     return sp[["File", "PSize", "PTime", "CID"]]
 #    sr = search_items(f"identifier:{id} format:(Comma-Separated Values)", params={"service": "files"}, fields=["identifier,name"])
 #    return [f"https://archive.org/download/{r['identifier']}/{r['name']}" for r in sr]
+
+
+@st.cache_data(ttl=3600, show_spinner="Loading Oracle Results...")
+def load_oracle():
+    with psycopg2.connect(database=st.secrets.DBNAME, host=st.secrets.DBHOST, user=st.secrets.DBUSER, password=st.secrets.DBPASS, port=st.secrets.DBPORT) as conn:
+        conn.cursor().execute(DBSP)
+        r1 = pd.read_sql_query(DBQ1, conn)
+        r2 = pd.read_sql_query(DBQ2, conn)
+        r3 = pd.read_sql_query(DBQ3, conn)
+        return (r1, r2, r3)
+
+
+def humanize(s):
+    if s >= 1024:
+        return f"{s/1024:,.1f} TB"
+    return f"{s:,.1f} GB"
 
 
 col = st.selectbox("Collection", options=COLS, format_func=lambda c: COLS[c], key="col")
@@ -105,6 +149,11 @@ if not len(iad):
     st.warning("No files found!")
     st.stop()
 
+fdf, ldf = (datetime.utcfromtimestamp(k.astype(datetime)/1_000_000_000).date() for k in iad.CARTime.sort_values().iloc[[0, -1]].values[:])
+fday, lday = st.slider("Date Range", value=(fdf, ldf), min_value=fdf, max_value=ldf)
+
+iad = iad[(iad.CARTime>=pd.to_datetime(fday)) & (iad.CARTime<=pd.to_datetime(lday))]
+
 #iad.set_index("File")
 #ls.set_index("File")
 
@@ -124,30 +173,42 @@ if not len(upld):
     st.stop()
 #m = d[d["File"].isnull()]
 t = upld.resample("D", on="PTime").sum().reset_index()
-last = t.iloc[-1]
+#last = t.iloc[-1]
+
+rt = upld[["PTime", "Size"]].set_index("PTime").sort_index()
+last = rt.last("D")
+dkey = last.index[-1].date()
+
 c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 
 #deltai = f"-{len(upld)}" if len(m) else "100%"
 #deltas = f"-{m.Size.sum():,.2f} GB" if len(m) else "100%"
-tdlt = (date.today() - last.PTime.date()).days
+#tdlt = (date.today() - last.PTime.date()).days
+tdlt = (date.today() - dkey).days
 
-cols = st.columns(3)
+r1, r2, r3 = load_oracle()
+
+cols = st.columns(4)
 cols[0].metric("Ready Files", f"{len(upld):,}", f"{len(d)-len(upld):,}", delta_color="inverse")
-cols[1].metric("Ready Size", f"{upld.Size.sum():,.0f} GB", f"{d.Size.sum()-upld.Size.sum():,.0f} GB", delta_color="inverse")
-cols[2].metric("Recent Activity", f"{last.PTime.date()}", f"{tdlt} days ago" if tdlt else "today", delta_color="off")
+cols[1].metric("Ready Size", humanize(upld.Size.sum()), humanize(d.Size.sum()-upld.Size.sum()), delta_color="inverse")
+#cols[2].metric("Recent Activity", f"{last.PTime.date()}", f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
+cols[2].metric("Recent Activity", f"{dkey}", f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
+cols[3].metric("Filoracle", r1.iloc[0,0], r2.iloc[0,0])
 #cols[2].metric("Last Day", f"{last.Size:,.2f} GB", f"{last.PTime.date()}", delta_color="off")
 #cols[3].metric("Spade", f"{ls['PSize'].sum():,.0f} GB", f"{len(ls):,} (files)")
 
-cols = st.columns(3)
-rt = upld.set_index("PTime").sort_index()
+cols = st.columns(4)
+rt = upld[["PTime", "Size"]].set_index("PTime").sort_index()
 last = rt.last("D")
-cols[0].metric("Last Day", f"{last.Size.sum():,.0f} GB", f"{len(last):,} files")
+cols[0].metric("Last Day", humanize(last.Size.sum()), f"{len(last):,} files")
 #last = rt.last("W")
 last = rt.last("7D")
-cols[1].metric("Last Week", f"{last.Size.sum():,.0f} GB", f"{len(last):,} files")
+cols[1].metric("Last Week", humanize(last.Size.sum()), f"{len(last):,} files")
 #last = rt.last("M")
 last = rt.last("30D")
-cols[2].metric("Last Month", f"{last.Size.sum():,.0f} GB", f"{len(last):,} files")
+cols[2].metric("Last Month", humanize(last.Size.sum()), f"{len(last):,} files")
+last = rt.last("365D")
+cols[3].metric("Last Year", humanize(last.Size.sum()), f"{len(last):,} files")
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Data"])
 
@@ -221,7 +282,14 @@ ch = alt.Chart(t).mark_bar().encode(
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
 
-tbs[6].dataframe(t[["PTime", "Size"]].sort_values(by="PTime", ascending=False).style.format({"PTime":lambda t: t.strftime("%Y-%m-%d"), "Size": "{:,.0f}"}), use_container_width=True)
+cols = tbs[6].columns(2, gap="large")
+with cols[0]:
+    st.caption("Daily Ready Sizes")
+    st.dataframe(t[["PTime", "Size"]].sort_values(by="PTime", ascending=False).style.format({"PTime":lambda t: t.strftime("%Y-%m-%d"), "Size": "{:,.0f}"}), use_container_width=True)
+with cols[1]:
+    st.caption("Oracle Providers")
+    st.dataframe(r3.rename(columns={"provider_id": "Provider", "cnt": "Count"}).style.format({"Count": "{:,}"}), use_container_width=True)
+
 
 "### Collection Size"
 #st.dataframe(c.style.format({"Size": "{:,.0f}"}), use_container_width=True)
@@ -245,5 +313,10 @@ st.altair_chart((ch + lbl).configure_axisX(grid=False), use_container_width=True
 #    "### Files Without CIDs"
 #    st.dataframe(m.style.format({"Size": "{:,.2f}"}), use_container_width=True)
 
-"### All Files"
-st.dataframe(d.style.format({"Size": "{:,.2f}"}), use_container_width=True)
+#"### Oracle Providers"
+
+#st.dataframe(r3.rename(columns={"provider_id": "Provider", "cnt": "Count"}).style.format({"Count": "{:,}"}), use_container_width=True)
+
+
+if st.button("Show All Files", type="primary"):
+    st.dataframe(d.style.format({"Size": "{:,.2f}"}), use_container_width=True)
