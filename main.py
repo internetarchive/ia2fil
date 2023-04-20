@@ -161,7 +161,7 @@ r1, r2, r3 = load_oracle()
 cols = st.columns(4)
 cols[0].metric("Ready Files", f"{len(upld):,}", f"{len(d)-len(upld):,}", delta_color="inverse")
 cols[1].metric("Ready Size", humanize(upld.Size.sum()), humanize(d.Size.sum()-upld.Size.sum()), delta_color="inverse")
-cols[2].metric("Recent Activity", f"{dkey}", f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
+cols[2].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
 cols[3].metric("Filoracle", r1.iloc[0,0], r2.iloc[0,0])
 
 cols = st.columns(4)
