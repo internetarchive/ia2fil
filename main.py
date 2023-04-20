@@ -5,7 +5,7 @@ import os
 import random
 
 from collections import defaultdict
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 import psycopg2
 
@@ -50,29 +50,47 @@ FINISHED = {
 }
 
 DBSP = "SET SEARCH_PATH = naive;"
-DBQ1 = """
-SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
-(
- SELECT DISTINCT(piece_id), claimed_log2_size FROM published_deals
-	WHERE client_id = '01131298'
-  AND (status = 'active' or status = 'published')
-  --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
-) sq
-;
-"""
-DBQ2 = """
-SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
-(
- SELECT DISTINCT(decoded_label), claimed_log2_size FROM published_deals
-	WHERE provider_id = '02011071'
-  AND (status = 'active' or status = 'published')
-  /* AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00') */ /* uncomment this to search before stated date */
-) sq
-;
-"""
-DBQ3 = """
-select provider_id, count(1) as cnt from naive.published_deals where client_id = '01131298' group by provider_id order by cnt desc;
-"""
+DBQS = {
+    "active_or_published_total_size": """
+        SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
+        (
+            SELECT DISTINCT(piece_id), claimed_log2_size FROM published_deals
+	    WHERE client_id = '01131298'
+            AND (status = 'active' OR status = 'published')
+            --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
+        ) sq;
+    """,
+    "active_or_published_label_size": """
+        SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
+        (
+            SELECT DISTINCT(decoded_label), claimed_log2_size FROM published_deals
+	    WHERE provider_id = '02011071'
+            AND (status = 'active' OR status = 'published')
+            /* AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00') */ /* uncomment this to search before stated date */
+        ) sq;
+    """,
+    "provider_item_counts": """
+        SELECT provider_id, count(1) AS cnt FROM naive.published_deals WHERE client_id = '01131298' GROUP BY provider_id ORDER BY cnt DESC;
+    """,
+    "deal_count_by_status": """
+        SELECT status, count(1) FROM published_deals WHERE client_id = '01131298' GROUP BY status;
+    """,
+    "proven_active_or_published_total_size": """
+        SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << proven_log2_size ) ) FROM pieces
+        WHERE piece_id IN (
+            SELECT (piece_id) FROM published_deals
+            WHERE client_id = '01131298'
+            AND (status = 'active' OR status = 'published')
+            --AND entry_created > '2023-03-22 00:00:00.00'
+        );
+    """,
+    "terminated_deal_count_by_reason": """
+        SELECT published_deal_meta->>'termination_reason' AS reason, count(1) FROM published_deals WHERE client_id = '01131298' AND status = 'terminated' GROUP BY reason;
+    """,
+    "index_age": """
+        SELECT ts_from_epoch( ( metadata->'market_state'->'epoch' )::INTEGER ) FROM global;
+    """
+}
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading File Metadata...")
@@ -101,13 +119,10 @@ def load_spade(id):
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading Oracle Results...")
-def load_oracle():
+def load_oracle(dbq):
     with psycopg2.connect(database=os.getenv("DBNAME"), host=os.getenv("DBHOST"), user=os.getenv("DBUSER"), password=os.getenv("DBPASS"), port=os.getenv("DBPORT")) as conn:
         conn.cursor().execute(DBSP)
-        r1 = pd.read_sql_query(DBQ1, conn)
-        r2 = pd.read_sql_query(DBQ2, conn)
-        r3 = pd.read_sql_query(DBQ3, conn)
-        return (r1, r2, r3)
+        return pd.read_sql_query(dbq, conn)
 
 
 def humanize(s):
@@ -156,13 +171,14 @@ c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 
 tdlt = (date.today() - dkey).days
 
-r1, r2, r3 = load_oracle()
+pub_size = load_oracle(DBQS["active_or_published_total_size"])
+prvn_size = load_oracle(DBQS["proven_active_or_published_total_size"])
 
 cols = st.columns(4)
 cols[0].metric("Ready Files", f"{len(upld):,}", f"{len(d)-len(upld):,}", delta_color="inverse")
 cols[1].metric("Ready Size", humanize(upld.Size.sum()), humanize(d.Size.sum()-upld.Size.sum()), delta_color="inverse")
 cols[2].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
-cols[3].metric("Filoracle", r1.iloc[0,0], r2.iloc[0,0])
+cols[3].metric("Filoracle", pub_size.iloc[0,0], prvn_size.iloc[0,0])
 
 cols = st.columns(4)
 rt = upld[["PTime", "Size"]].set_index("PTime").sort_index()
@@ -175,7 +191,7 @@ cols[2].metric("Last Month", humanize(last.Size.sum()), f"{len(last):,} files")
 last = rt.last("365D")
 cols[3].metric("Last Year", humanize(last.Size.sum()), f"{len(last):,} files")
 
-tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Data"])
+tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
 brush = alt.selection(type="interval", encodings=["x"], name="sel")
 
@@ -246,14 +262,40 @@ ch = alt.Chart(t).mark_bar().encode(
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
 
-cols = tbs[6].columns(2, gap="large")
+pro_ct = load_oracle(DBQS["provider_item_counts"]).rename(columns={"provider_id": "Provider", "cnt": "Count"})
+dl_st_ct = load_oracle(DBQS["deal_count_by_status"]).rename(columns={"status": "Status", "count": "Count"})
+trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"]).rename(columns={"reason": "Reason", "count": "Count"}).replace("deal no longer part of market-actor state", "expired").replace("entered on-chain final-slashed state", "slashed")
+idx_age = load_oracle(DBQS["index_age"])
+
+cols = tbs[6].columns(2)
+with cols[0]:
+    ch = alt.Chart(dl_st_ct).mark_arc().encode(
+        theta="Count:Q",
+        color=alt.Color("Status:N", scale=alt.Scale(domain=["active", "published", "terminated"], range=["teal", "orange", "red"]), legend=alt.Legend(title="Deal Status")),
+        tooltip=["Status:N", alt.Tooltip("Count:Q", format=",")]
+    )
+    st.altair_chart(ch, use_container_width=True)
+with cols[1]:
+    ch = alt.Chart(trm_ct).mark_arc().encode(
+        theta="Count:Q",
+        color=alt.Color("Reason:N", scale=alt.Scale(domain=["expired", "slashed"], range=["orange", "red"]), legend=alt.Legend(title="Termination Reason")),
+        tooltip=["Reason:N", alt.Tooltip("Count:Q", format=",")]
+    )
+    st.altair_chart(ch, use_container_width=True)
+
+cols = tbs[7].columns(3)
 with cols[0]:
     st.caption("Daily Ready Sizes")
     st.dataframe(t[["PTime", "Size"]].sort_values(by="PTime", ascending=False).style.format({"PTime":lambda t: t.strftime("%Y-%m-%d"), "Size": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
-    st.caption("Oracle Providers")
-    st.dataframe(r3.rename(columns={"provider_id": "Provider", "cnt": "Count"}).style.format({"Count": "{:,}"}), use_container_width=True)
-
+    st.caption("Service Providers")
+    st.dataframe(pro_ct.style.format({"Count": "{:,}"}), use_container_width=True)
+with cols[2]:
+    st.caption("Deal Status")
+    st.dataframe(dl_st_ct, use_container_width=True)
+    st.caption("Termination Reason")
+    st.dataframe(trm_ct, use_container_width=True)
+    st.write(f"_Updated: {(datetime.now(timezone.utc) - idx_age.iloc[0,0]).total_seconds():,.0f} seconds ago._")
 
 "### Collection Size"
 ch = alt.Chart(c).mark_bar().encode(
