@@ -61,6 +61,17 @@ DBQS = {
             --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
         ) sq;
     """,
+    "active_or_published_daily_size": """
+        SELECT DATE_TRUNC('day', sq.entry_created) AS dy, SUM((1::BIGINT << sq.claimed_log2_size) / 1024 / 1024 / 1024) AS size
+        FROM (
+            SELECT DISTINCT ON(piece_id) piece_id, entry_created, claimed_log2_size
+            FROM published_deals
+            WHERE client_id = '01131298'
+            AND (status = 'active' OR status = 'published')
+            ORDER BY piece_id, entry_created
+        ) sq
+        GROUP BY DATE_TRUNC('day', sq.entry_created);
+    """,
     "active_or_published_label_size": """
         SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << sq.claimed_log2_size))
         FROM (
@@ -83,6 +94,17 @@ DBQS = {
         FROM published_deals
         WHERE client_id = '01131298'
         GROUP BY status;
+    """,
+    "count_copies": """
+        SELECT sq.copies, COUNT(sq.copies)
+        FROM (
+            SELECT COUNT(piece_id) AS copies
+            FROM published_deals
+            WHERE client_id = '01131298'
+            AND (status = 'active' OR status = 'published')
+            GROUP BY piece_id
+        ) sq
+        GROUP BY copies;
     """,
     "proven_active_or_published_total_size": """
         SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << proven_log2_size))
@@ -187,14 +209,16 @@ c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 
 tdlt = (date.today() - dkey).days
 
-pub_size = load_oracle(DBQS["active_or_published_total_size"])
 prvn_size = load_oracle(DBQS["proven_active_or_published_total_size"])
+dsz = load_oracle(DBQS["active_or_published_daily_size"]).rename(columns={"dy": "PTime", "size": "ESize"})
+dsz["PTime"] = pd.to_datetime(dsz.PTime).dt.tz_localize(None)
+msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Ready", "ESize": "Claimed"}).sort_values(by="Day", ascending=False).fillna(0)
 
 cols = st.columns(4)
 cols[0].metric("Ready Files", f"{len(upld):,}", f"{len(d)-len(upld):,}", delta_color="inverse")
 cols[1].metric("Ready Size", humanize(upld.Size.sum()), humanize(d.Size.sum()-upld.Size.sum()), delta_color="inverse")
 cols[2].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
-cols[3].metric("Filoracle", pub_size.iloc[0,0], prvn_size.iloc[0,0])
+cols[3].metric("Filoracle", humanize(msz.Claimed.sum()), prvn_size.iloc[0,0])
 
 cols = st.columns(4)
 rt = upld[["PTime", "Size"]].set_index("PTime").sort_index()
@@ -209,39 +233,18 @@ cols[3].metric("Last Year", humanize(last.Size.sum()), f"{len(last):,} files")
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
-brush = alt.selection(type="interval", encodings=["x"], name="sel")
-
-ch = alt.Chart(t).mark_line(
-    size=4,
-).transform_window(
-    Total="sum(Size)"
-).encode(
-    x="PTime:T",
-    y=alt.Y("Total:Q", axis=alt.Axis(format=",.0f")),
-    tooltip=["PTime:T", alt.Tooltip("Size:Q", format=",.2f"), alt.Tooltip("Total:Q", format=",.2f")]
-).add_selection(
-    brush
-)
-
-txt = alt.Chart(t).transform_filter(
-    brush
-).transform_aggregate(
-    total="sum(Size)"
-).transform_calculate(
-    date_range="sel.PTime ? utcFormat(sel.PTime[0], '%Y-%m-%d') + ' to ' + utcFormat(sel.PTime[1], '%Y-%m-%d') : 'Total'",
-    text="datum.date_range + ': ' + format(datum.total, ',.0f') + ' GB'"
-).mark_text(
-    align="left",
-    baseline="top",
-    color="#ff4b4b",
-    size=18
-).encode(
-    x=alt.value(20),
-    y=alt.value(20),
-    text=alt.Text("text:N"),
-)
-
-tbs[0].altair_chart(ch + txt, use_container_width=True)
+base = alt.Chart(msz).encode(x="Day:T")
+ch = alt.layer(
+    base.mark_line(size=4, color="DodgerBlue").transform_window(
+        sort=[{"field": "Day"}],
+        TotalReady="sum(Ready)"
+    ).encode(y="TotalReady:Q"),
+    base.mark_line(size=4, color="red").transform_window(
+        sort=[{"field": "Day"}],
+        TotalClaimed="sum(Claimed)"
+    ).encode(y="TotalClaimed:Q")
+).interactive(bind_y=False).configure_axisX(grid=False)
+tbs[0].altair_chart(ch, use_container_width=True)
 
 ch = alt.Chart(t).mark_bar().encode(
     x="utcyearmonthdate(PTime):T",
@@ -278,39 +281,50 @@ ch = alt.Chart(t).mark_bar().encode(
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
 
+cp_ct = load_oracle(DBQS["count_copies"]).rename(columns={"copies": "Copies", "count": "Count"})
 pro_ct = load_oracle(DBQS["provider_item_counts"]).rename(columns={"provider_id": "Provider", "cnt": "Count"})
 dl_st_ct = load_oracle(DBQS["deal_count_by_status"]).rename(columns={"status": "Status", "count": "Count"})
 trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"]).rename(columns={"reason": "Reason", "count": "Count"}).replace("deal no longer part of market-actor state", "expired").replace("entered on-chain final-slashed state", "slashed")
 idx_age = load_oracle(DBQS["index_age"])
 
-cols = tbs[6].columns(2)
+cols = tbs[6].columns((3, 2, 2))
 with cols[0]:
+    ch = alt.Chart(cp_ct, title="Active/Published Copies").mark_bar().encode(
+        x="Count:Q",
+        y=alt.Y("Copies:O", sort="-y"),
+        tooltip=["Copies:O", alt.Tooltip("Count:Q", format=",")]
+    ).configure_axisX(grid=False)
+    st.altair_chart(ch, use_container_width=True)
+with cols[1]:
     ch = alt.Chart(dl_st_ct).mark_arc().encode(
         theta="Count:Q",
-        color=alt.Color("Status:N", scale=alt.Scale(domain=["active", "published", "terminated"], range=["teal", "orange", "red"]), legend=alt.Legend(title="Deal Status")),
+        color=alt.Color("Status:N", scale=alt.Scale(domain=["active", "published", "terminated"], range=["teal", "orange", "red"]), legend=alt.Legend(title="Deal Status", orient="top")),
         tooltip=["Status:N", alt.Tooltip("Count:Q", format=",")]
     )
     st.altair_chart(ch, use_container_width=True)
-with cols[1]:
+with cols[2]:
     ch = alt.Chart(trm_ct).mark_arc().encode(
         theta="Count:Q",
-        color=alt.Color("Reason:N", scale=alt.Scale(domain=["expired", "slashed"], range=["orange", "red"]), legend=alt.Legend(title="Termination Reason")),
+        color=alt.Color("Reason:N", scale=alt.Scale(domain=["expired", "slashed"], range=["orange", "red"]), legend=alt.Legend(title="Termination Reason", orient="top")),
         tooltip=["Reason:N", alt.Tooltip("Count:Q", format=",")]
     )
     st.altair_chart(ch, use_container_width=True)
 
-cols = tbs[7].columns(3)
+cols = tbs[7].columns((5, 4, 3, 3))
 with cols[0]:
-    st.caption("Daily Ready Sizes")
-    st.dataframe(t[["PTime", "Size"]].sort_values(by="PTime", ascending=False).style.format({"PTime":lambda t: t.strftime("%Y-%m-%d"), "Size": "{:,.0f}"}), use_container_width=True)
+    st.caption("Daily Sizes")
+    st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Ready": "{:,.0f}", "Claimed": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
     st.dataframe(pro_ct.style.format({"Count": "{:,}"}), use_container_width=True)
 with cols[2]:
+    st.caption("Active/Published Copies")
+    st.dataframe(cp_ct.set_index(cp_ct.columns[0]).style.format({"Count": "{:,}"}), use_container_width=True)
+with cols[3]:
     st.caption("Deal Status")
-    st.dataframe(dl_st_ct, use_container_width=True)
+    st.dataframe(dl_st_ct.set_index(dl_st_ct.columns[0]), use_container_width=True)
     st.caption("Termination Reason")
-    st.dataframe(trm_ct, use_container_width=True)
+    st.dataframe(trm_ct.set_index(trm_ct.columns[0]), use_container_width=True)
     st.write(f"_Updated: {(datetime.now(timezone.utc) - idx_age.iloc[0,0]).total_seconds():,.0f} seconds ago._")
 
 "### Collection Size"
@@ -331,4 +345,4 @@ lbl = ch.mark_text(
 st.altair_chart((ch + lbl).configure_axisX(grid=False), use_container_width=True)
 
 if st.button("Show All Files", type="primary"):
-    st.dataframe(d.style.format({"Size": "{:,.2f}"}), use_container_width=True)
+    st.dataframe(d, use_container_width=True)
