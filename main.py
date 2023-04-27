@@ -316,7 +316,7 @@ with cols[0]:
     st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Ready": "{:,.0f}", "Claimed": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
-    st.dataframe(pro_ct.style.format({"Count": "{:,}"}), use_container_width=True)
+    st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
 with cols[2]:
     st.caption("Active/Published Copies")
     st.dataframe(cp_ct.set_index(cp_ct.columns[0]).style.format({"Count": "{:,}"}), use_container_width=True)
