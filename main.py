@@ -62,7 +62,7 @@ DBQS = {
         ) sq;
     """,
     "active_or_published_daily_size": """
-        SELECT DATE_TRUNC('day', sq.entry_created) AS dy, SUM((1::BIGINT << sq.claimed_log2_size) / 1024 / 1024 / 1024) AS size
+        SELECT DATE_TRUNC('day', sq.entry_created) AS dy, SUM((1::BIGINT << sq.claimed_log2_size) / 1024 / 1024 / 1024) AS size, COUNT(sq.claimed_log2_size) AS pieces
         FROM (
             SELECT DISTINCT ON(piece_id) piece_id, entry_created, claimed_log2_size
             FROM published_deals
@@ -95,10 +95,10 @@ DBQS = {
         WHERE client_id = '01131298'
         GROUP BY status;
     """,
-    "count_copies": """
-        SELECT sq.copies, COUNT(sq.copies)
+    "copies_count_size": """
+        SELECT sq.copies, COUNT(sq.copies), SUM((1::BIGINT << sq.sz) / 1024 / 1024 / 1024) AS size
         FROM (
-            SELECT COUNT(piece_id) AS copies
+            SELECT COUNT(piece_id) AS copies, MAX(claimed_log2_size) AS sz
             FROM published_deals
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
@@ -193,6 +193,7 @@ iad = iad[(iad.CARTime>=pd.to_datetime(fday)) & (iad.CARTime<=pd.to_datetime(lda
 
 d = pd.merge(iad, ls, left_on="File", right_on="File", how="left")
 
+# Temporary hack to backfill old data
 d["PTime"].mask(d.Collection.isin(FINISHED), d.CARTime, inplace=True)
 
 upld = d[~d["PTime"].isnull()]
@@ -209,27 +210,27 @@ c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 
 tdlt = (date.today() - dkey).days
 
-prvn_size = load_oracle(DBQS["proven_active_or_published_total_size"])
-dsz = load_oracle(DBQS["active_or_published_daily_size"]).rename(columns={"dy": "PTime", "size": "ESize"})
+cp_ct_sz = load_oracle(DBQS["copies_count_size"]).rename(columns={"copies": "Copies", "count": "Count", "size": "Size"})
+dsz = load_oracle(DBQS["active_or_published_daily_size"]).rename(columns={"dy": "PTime", "size": "Claimed", "pieces": "Pieces"})
 dsz["PTime"] = pd.to_datetime(dsz.PTime).dt.tz_localize(None)
-msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Ready", "ESize": "Claimed"}).sort_values(by="Day", ascending=False).fillna(0)
+msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Ready"}).sort_values(by="Day", ascending=False).fillna(0)
 
 cols = st.columns(4)
-cols[0].metric("Ready Files", f"{len(upld):,}", f"{len(d)-len(upld):,}", delta_color="inverse")
-cols[1].metric("Ready Size", humanize(upld.Size.sum()), humanize(d.Size.sum()-upld.Size.sum()), delta_color="inverse")
-cols[2].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
-cols[3].metric("Filoracle", humanize(msz.Claimed.sum()), prvn_size.iloc[0,0])
+cols[0].metric("Ready", humanize(upld.Size.sum()), f"{len(upld):,} files")
+cols[1].metric("Claimed", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files")
+cols[2].metric("Resilient", humanize(cp_ct_sz[cp_ct_sz.Copies>=4].Size.sum()), f"{cp_ct_sz[cp_ct_sz.Copies>=4].Count.sum():,.0f} files")
+cols[3].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off")
 
 cols = st.columns(4)
-rt = upld[["PTime", "Size"]].set_index("PTime").sort_index()
-last = rt.last("D")
-cols[0].metric("Last Day", humanize(last.Size.sum()), f"{len(last):,} files")
-last = rt.last("7D")
-cols[1].metric("Last Week", humanize(last.Size.sum()), f"{len(last):,} files")
-last = rt.last("30D")
-cols[2].metric("Last Month", humanize(last.Size.sum()), f"{len(last):,} files")
-last = rt.last("365D")
-cols[3].metric("Last Year", humanize(last.Size.sum()), f"{len(last):,} files")
+rt = msz.set_index("Day").sort_index()
+last = rt.last("2D")
+cols[0].metric("Last Day", humanize(last.Ready.sum()), humanize(last.Claimed.sum()))
+last = rt.last("8D")
+cols[1].metric("Last Week", humanize(last.Ready.sum()), humanize(last.Claimed.sum()))
+last = rt.last("31D")
+cols[2].metric("Last Month", humanize(last.Ready.sum()), humanize(last.Claimed.sum()))
+last = rt.last("366D")
+cols[3].metric("Last Year", humanize(last.Ready.sum()), humanize(last.Claimed.sum()))
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
@@ -281,7 +282,6 @@ ch = alt.Chart(t).mark_bar().encode(
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
 
-cp_ct = load_oracle(DBQS["count_copies"]).rename(columns={"copies": "Copies", "count": "Count"})
 pro_ct = load_oracle(DBQS["provider_item_counts"]).rename(columns={"provider_id": "Provider", "cnt": "Count"})
 dl_st_ct = load_oracle(DBQS["deal_count_by_status"]).rename(columns={"status": "Status", "count": "Count"})
 trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"]).rename(columns={"reason": "Reason", "count": "Count"}).replace("deal no longer part of market-actor state", "expired").replace("entered on-chain final-slashed state", "slashed")
@@ -289,7 +289,7 @@ idx_age = load_oracle(DBQS["index_age"])
 
 cols = tbs[6].columns((3, 2, 2))
 with cols[0]:
-    ch = alt.Chart(cp_ct, title="Active/Published Copies").mark_bar().encode(
+    ch = alt.Chart(cp_ct_sz, title="Active/Published Copies").mark_bar().encode(
         x="Count:Q",
         y=alt.Y("Copies:O", sort="-y"),
         tooltip=["Copies:O", alt.Tooltip("Count:Q", format=",")]
@@ -310,16 +310,16 @@ with cols[2]:
     )
     st.altair_chart(ch, use_container_width=True)
 
-cols = tbs[7].columns((5, 4, 3, 3))
+cols = tbs[7].columns((6, 4, 4, 3))
 with cols[0]:
-    st.caption("Daily Sizes")
-    st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Ready": "{:,.0f}", "Claimed": "{:,.0f}"}), use_container_width=True)
+    st.caption("Daily Activity")
+    st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Ready": "{:,.0f}", "Claimed": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
     st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
 with cols[2]:
     st.caption("Active/Published Copies")
-    st.dataframe(cp_ct.set_index(cp_ct.columns[0]).style.format({"Count": "{:,}"}), use_container_width=True)
+    st.dataframe(cp_ct_sz.set_index(cp_ct_sz.columns[0]).style.format({"Count": "{:,}", "Size": "{:,.0f}"}), use_container_width=True)
 with cols[3]:
     st.caption("Deal Status")
     st.dataframe(dl_st_ct.set_index(dl_st_ct.columns[0]), use_container_width=True)
