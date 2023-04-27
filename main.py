@@ -52,43 +52,59 @@ FINISHED = {
 DBSP = "SET SEARCH_PATH = naive;"
 DBQS = {
     "active_or_published_total_size": """
-        SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
-        (
-            SELECT DISTINCT(piece_id), claimed_log2_size FROM published_deals
+        SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << sq.claimed_log2_size))
+        FROM (
+            SELECT DISTINCT(piece_id), claimed_log2_size
+            FROM published_deals
 	    WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
             --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
         ) sq;
     """,
     "active_or_published_label_size": """
-        SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << sq.claimed_log2_size ) ) FROM
-        (
-            SELECT DISTINCT(decoded_label), claimed_log2_size FROM published_deals
+        SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << sq.claimed_log2_size))
+        FROM (
+            SELECT DISTINCT(decoded_label), claimed_log2_size
+            FROM published_deals
 	    WHERE provider_id = '02011071'
             AND (status = 'active' OR status = 'published')
             /* AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00') */ /* uncomment this to search before stated date */
         ) sq;
     """,
     "provider_item_counts": """
-        SELECT provider_id, count(1) AS cnt FROM naive.published_deals WHERE client_id = '01131298' GROUP BY provider_id ORDER BY cnt DESC;
+        SELECT provider_id, count(1) AS cnt
+        FROM published_deals
+        WHERE client_id = '01131298'
+        GROUP BY provider_id
+        ORDER BY cnt DESC;
     """,
     "deal_count_by_status": """
-        SELECT status, count(1) FROM published_deals WHERE client_id = '01131298' GROUP BY status;
+        SELECT status, count(1)
+        FROM published_deals
+        WHERE client_id = '01131298'
+        GROUP BY status;
     """,
     "proven_active_or_published_total_size": """
-        SELECT PG_SIZE_PRETTY ( SUM ( 1::BIGINT << proven_log2_size ) ) FROM pieces
+        SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << proven_log2_size))
+        FROM pieces
         WHERE piece_id IN (
-            SELECT (piece_id) FROM published_deals
+            SELECT (piece_id)
+            FROM published_deals
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
             --AND entry_created > '2023-03-22 00:00:00.00'
         );
     """,
     "terminated_deal_count_by_reason": """
-        SELECT published_deal_meta->>'termination_reason' AS reason, count(1) FROM published_deals WHERE client_id = '01131298' AND status = 'terminated' GROUP BY reason;
+        SELECT published_deal_meta->>'termination_reason' AS reason, count(1)
+        FROM published_deals
+        WHERE client_id = '01131298'
+        AND status = 'terminated'
+        GROUP BY reason;
     """,
     "index_age": """
-        SELECT ts_from_epoch( ( metadata->'market_state'->'epoch' )::INTEGER ) FROM global;
+        SELECT ts_from_epoch( ( metadata->'market_state'->'epoch' )::INTEGER )
+        FROM global;
     """
 }
 
