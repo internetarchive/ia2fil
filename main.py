@@ -344,7 +344,7 @@ with cols[3]:
     st.dataframe(dl_st_ct.set_index(dl_st_ct.columns[0]), use_container_width=True)
     st.caption("Termination Reason")
     st.dataframe(trm_ct.set_index(trm_ct.columns[0]), use_container_width=True)
-    st.write(f"_Updated: {(datetime.now(timezone.utc) - idx_age.iloc[0,0]).total_seconds():,.0f} seconds ago._")
+    st.write(f"_Updated: {(datetime.now(timezone.utc) - idx_age.iloc[0,0]).total_seconds()/60:,.0f} minutes ago._")
 
 "### Collection Size"
 ch = alt.Chart(c).mark_bar().encode(
