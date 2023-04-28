@@ -244,6 +244,15 @@ cols[3].metric("Last Year", humanize(last.Ready.sum()), humanize(last.Claimed.su
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
+rtv = rt[["Ready", "Claimed"]]
+ranges = {
+    "Day": rtv.groupby(pd.Grouper(freq="D")).sum().to_numpy().max(),
+    "Week": rtv.groupby(pd.Grouper(freq="W")).sum().to_numpy().max(),
+    "Month": rtv.groupby(pd.Grouper(freq="M")).sum().to_numpy().max(),
+    "Quarter": rtv.groupby(pd.Grouper(freq="Q")).sum().to_numpy().max(),
+    "Year": rtv.groupby(pd.Grouper(freq="Y")).sum().to_numpy().max()
+}
+
 base = alt.Chart(msz).encode(x="Day:T")
 ch = alt.layer(
     base.mark_line(size=4, color="DodgerBlue").transform_window(
@@ -259,65 +268,65 @@ tbs[0].altair_chart(ch, use_container_width=True)
 
 ch = alt.Chart(msz, height=250).mark_bar().encode(
     x=alt.X("utcyearmonthdate(Day):T", title="Day"),
-    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size", scale=alt.Scale(domain=[0, ranges["Day"]])),
     tooltip=[alt.Tooltip("utcyearmonthdate(Day):T", title="Day"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[1].altair_chart(ch, use_container_width=True)
 ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
     x=alt.X("utcyearmonthdate(Day):T", title="Day"),
-    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size", scale=alt.Scale(domain=[0, ranges["Day"]])),
     tooltip=[alt.Tooltip("utcyearmonthdate(Day):T", title="Day"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[1].altair_chart(ch, use_container_width=True)
 
 ch = alt.Chart(msz, height=250).mark_bar().encode(
     x=alt.X("yearweek(Day):T", title="Week"),
-    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size", scale=alt.Scale(domain=[0, ranges["Week"]])),
     tooltip=[alt.Tooltip("yearweek(Day):T", title="Week"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[2].altair_chart(ch, use_container_width=True)
 ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
     x=alt.X("yearweek(Day):T", title="Week"),
-    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size", scale=alt.Scale(domain=[0, ranges["Week"]])),
     tooltip=[alt.Tooltip("yearweek(Day):T", title="Week"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[2].altair_chart(ch, use_container_width=True)
 
 ch = alt.Chart(msz, height=250).mark_bar().encode(
     x=alt.X("yearmonth(Day):T", title="Month"),
-    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size", scale=alt.Scale(domain=[0, ranges["Month"]])),
     tooltip=[alt.Tooltip("yearmonth(Day):T", title="Month"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[3].altair_chart(ch, use_container_width=True)
 ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
     x=alt.X("yearmonth(Day):T", title="Month"),
-    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size", scale=alt.Scale(domain=[0, ranges["Month"]])),
     tooltip=[alt.Tooltip("yearmonth(Day):T", title="Month"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[3].altair_chart(ch, use_container_width=True)
 
 ch = alt.Chart(msz, height=250).mark_bar().encode(
     x=alt.X("yearquarter(Day):T", title="Quarter"),
-    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size", scale=alt.Scale(domain=[0, ranges["Quarter"]])),
     tooltip=[alt.Tooltip("yearquarter(Day):T", title="Quarter"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[4].altair_chart(ch, use_container_width=True)
 ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
     x=alt.X("yearquarter(Day):T", title="Quarter"),
-    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size", scale=alt.Scale(domain=[0, ranges["Quarter"]])),
     tooltip=[alt.Tooltip("yearquarter(Day):T", title="Quarter"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[4].altair_chart(ch, use_container_width=True)
 
 ch = alt.Chart(msz, height=250).mark_bar().encode(
     x=alt.X("year(Day):T", title="Year"),
-    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size", scale=alt.Scale(domain=[0, ranges["Year"]])),
     tooltip=[alt.Tooltip("year(Day):T", title="Year"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
 ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
     x=alt.X("year(Day):T", title="Year"),
-    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size", scale=alt.Scale(domain=[0, ranges["Year"]])),
     tooltip=[alt.Tooltip("year(Day):T", title="Year"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
