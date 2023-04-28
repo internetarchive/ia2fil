@@ -177,8 +177,10 @@ def humanize(s):
     return f"{s:,.1f} GB"
 
 
-def temporal_bars(data, bin, period, ylim, col, state):
-    return alt.Chart(data, height=250).mark_bar(color=col).encode(
+def temporal_bars(data, bin, period, ylim, state):
+    ch = alt.Chart(data, height=250)
+    ch = ch.mark_bar(color="#ff2b2b") if state == "Claimed" else ch.mark_bar()
+    return ch.encode(
         x=alt.X(f"{bin}(Day):T", title=period),
         y=alt.Y(f"sum({state}):Q", axis=alt.Axis(format=",.0f"), title=f"{state} Size", scale=alt.Scale(domain=[0, ylim])),
         tooltip=[alt.Tooltip(f"{bin}(Day):T", title=period), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
@@ -263,7 +265,7 @@ ranges = {
 
 base = alt.Chart(msz).encode(x="Day:T")
 ch = alt.layer(
-    base.mark_line(size=4, color="#83c9ff").transform_window(
+    base.mark_line(size=4).transform_window(
         sort=[{"field": "Day"}],
         TotalReady="sum(Ready)"
     ).encode(y="TotalReady:Q"),
@@ -274,29 +276,29 @@ ch = alt.layer(
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[0].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "#83c9ff", "Ready")
+ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "Ready")
 tbs[1].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "#ff2b2b", "Claimed")
+ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "Claimed")
 tbs[1].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "#83c9ff", "Ready")
+ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "Ready")
 tbs[2].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "#ff2b2b", "Claimed")
+ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "Claimed")
 tbs[2].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "#83c9ff", "Ready")
+ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "Ready")
 tbs[3].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "#ff2b2b", "Claimed")
+ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "Claimed")
 tbs[3].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "#83c9ff", "Ready")
+ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "Ready")
 tbs[4].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "#ff2b2b", "Claimed")
+ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "Claimed")
 tbs[4].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "year", "Year", ranges["Year"], "#83c9ff", "Ready")
+ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Ready")
 tbs[5].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "year", "Year", ranges["Year"], "#ff2b2b", "Claimed")
+ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Claimed")
 tbs[5].altair_chart(ch, use_container_width=True)
 
 pro_ct = load_oracle(DBQS["provider_item_counts"].format(fday=fday, lday=lday)).rename(columns={"provider_id": "Provider", "cnt": "Count"})
@@ -315,14 +317,14 @@ with cols[0]:
 with cols[1]:
     ch = alt.Chart(dl_st_ct).mark_arc().encode(
         theta="Count:Q",
-        color=alt.Color("Status:N", scale=alt.Scale(domain=["active", "published", "terminated"], range=["#83c9ff", "#ff8700", "#ff2b2b"]), legend=alt.Legend(title="Deal Status", orient="top")),
+        color=alt.Color("Status:N", scale=alt.Scale(domain=["active", "published", "terminated"], range=["teal", "orange", "red"]), legend=alt.Legend(title="Deal Status", orient="top")),
         tooltip=["Status:N", alt.Tooltip("Count:Q", format=",")]
     )
     st.altair_chart(ch, use_container_width=True)
 with cols[2]:
     ch = alt.Chart(trm_ct).mark_arc().encode(
         theta="Count:Q",
-        color=alt.Color("Reason:N", scale=alt.Scale(domain=["expired", "slashed"], range=["#ff8700", "#ff2b2b"]), legend=alt.Legend(title="Termination Reason", orient="top")),
+        color=alt.Color("Reason:N", scale=alt.Scale(domain=["expired", "slashed"], range=["orange", "red"]), legend=alt.Legend(title="Termination Reason", orient="top")),
         tooltip=["Reason:N", alt.Tooltip("Count:Q", format=",")]
     )
     st.altair_chart(ch, use_container_width=True)
