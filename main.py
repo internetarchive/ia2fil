@@ -179,11 +179,11 @@ def humanize(s):
 
 def temporal_bars(data, bin, period, ylim, state):
     ch = alt.Chart(data, height=250)
-    ch = ch.mark_bar(color="#ff2b2b") if state == "Claimed" else ch.mark_bar()
+    ch = ch.mark_bar(color="#ff2b2b") if state == "Onchain" else ch.mark_bar()
     return ch.encode(
         x=alt.X(f"{bin}(Day):T", title=period),
         y=alt.Y(f"sum({state}):Q", axis=alt.Axis(format=",.0f"), title=f"{state} Size", scale=alt.Scale(domain=[0, ylim])),
-        tooltip=[alt.Tooltip(f"{bin}(Day):T", title=period), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
+        tooltip=[alt.Tooltip(f"{bin}(Day):T", title=period), alt.Tooltip("sum(Packed):Q", format=",.0f", title="Packed"), alt.Tooltip("sum(Onchain):Q", format=",.0f", title="Onchain")]
     ).interactive(bind_y=False).configure_axisX(grid=False)
 
 
@@ -218,7 +218,7 @@ d["PTime"].mask(d.Collection.isin(FINISHED), d.CARTime, inplace=True)
 
 upld = d[~d["PTime"].isnull()]
 if not len(upld):
-    st.warning(f"No files are ready from collection: `{col}`")
+    st.warning(f"No files are packed from collection: `{col}`")
     st.stop()
 t = upld.resample("D", on="PTime").sum().reset_index()
 
@@ -231,30 +231,30 @@ c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 tdlt = (date.today() - dkey).days
 
 cp_ct_sz = load_oracle(DBQS["copies_count_size"].format(fday=fday, lday=lday)).rename(columns={"copies": "Copies", "count": "Count", "size": "Size"})
-dsz = load_oracle(DBQS["active_or_published_daily_size"].format(fday=fday, lday=lday)).rename(columns={"dy": "PTime", "size": "Claimed", "pieces": "Pieces"})
+dsz = load_oracle(DBQS["active_or_published_daily_size"].format(fday=fday, lday=lday)).rename(columns={"dy": "PTime", "size": "Onchain", "pieces": "Pieces"})
 dsz["PTime"] = pd.to_datetime(dsz.PTime).dt.tz_localize(None)
-msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Ready"}).sort_values(by="Day", ascending=False).fillna(0)
+msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Packed"}).sort_values(by="Day", ascending=False).fillna(0)
 
 cols = st.columns(4)
-cols[0].metric("Ready", humanize(upld.Size.sum()), f"{len(upld):,} files", help="Total ready CAR files in the Internet Archive")
-cols[1].metric("Claimed", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/ready pieces in the Filecoin network")
-cols[2].metric("Resilient", humanize(cp_ct_sz[cp_ct_sz.Copies>=4].Size.sum()), f"{cp_ct_sz[cp_ct_sz.Copies>=4].Count.sum():,.0f} files", help="Unique active/ready pieces with at least four copies in the Filecoin network")
+cols[0].metric("Packed", humanize(upld.Size.sum()), f"{len(upld):,} files", help="Total packed CAR files in the Internet Archive")
+cols[1].metric("On-chain", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/published pieces in the Filecoin network")
+cols[2].metric("4+ Replications", humanize(cp_ct_sz[cp_ct_sz.Copies>=4].Size.sum()), f"{cp_ct_sz[cp_ct_sz.Copies>=4].Count.sum():,.0f} files", help="Unique active/published pieces with at least four replications in the Filecoin network")
 cols[3].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} days ago" if tdlt > 1 else "yesterday" if tdlt else "today", delta_color="off", help="Last record day in the Spade CSV files")
 
 cols = st.columns(4)
 rt = msz.set_index("Day").sort_index()
 last = rt.last("D")
-cols[0].metric("Last Day", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last day")
+cols[0].metric("Last Day", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last day")
 last = rt.last("7D")
-cols[1].metric("Last Week", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last week")
+cols[1].metric("Last Week", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last week")
 last = rt.last("30D")
-cols[2].metric("Last Month", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last month")
+cols[2].metric("Last Month", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last month")
 last = rt.last("365D")
-cols[3].metric("Last Year", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last year")
+cols[3].metric("Last Year", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last year")
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
-rtv = rt[["Ready", "Claimed"]]
+rtv = rt[["Packed", "Onchain"]]
 ranges = {
     "Day": rtv.groupby(pd.Grouper(freq="D")).sum().to_numpy().max(),
     "Week": rtv.groupby(pd.Grouper(freq="W")).sum().to_numpy().max(),
@@ -267,38 +267,38 @@ base = alt.Chart(msz).encode(x="Day:T")
 ch = alt.layer(
     base.mark_line(size=4).transform_window(
         sort=[{"field": "Day"}],
-        TotalReady="sum(Ready)"
-    ).encode(y="TotalReady:Q"),
+        TotalPacked="sum(Packed)"
+    ).encode(y="TotalPacked:Q"),
     base.mark_line(size=4, color="#ff2b2b").transform_window(
         sort=[{"field": "Day"}],
-        TotalClaimed="sum(Claimed)"
-    ).encode(y="TotalClaimed:Q")
+        TotalOnchain="sum(Onchain)"
+    ).encode(y="TotalOnchain:Q")
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[0].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "Ready")
+ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "Packed")
 tbs[1].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "Claimed")
+ch = temporal_bars(msz, "utcyearmonthdate", "Day", ranges["Day"], "Onchain")
 tbs[1].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "Ready")
+ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "Packed")
 tbs[2].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "Claimed")
+ch = temporal_bars(msz, "yearweek", "Week", ranges["Week"], "Onchain")
 tbs[2].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "Ready")
+ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "Packed")
 tbs[3].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "Claimed")
+ch = temporal_bars(msz, "yearmonth", "Month", ranges["Month"], "Onchain")
 tbs[3].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "Ready")
+ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "Packed")
 tbs[4].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "Claimed")
+ch = temporal_bars(msz, "yearquarter", "Quarter", ranges["Quarter"], "Onchain")
 tbs[4].altair_chart(ch, use_container_width=True)
 
-ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Ready")
+ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Packed")
 tbs[5].altair_chart(ch, use_container_width=True)
-ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Claimed")
+ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Onchain")
 tbs[5].altair_chart(ch, use_container_width=True)
 
 pro_ct = load_oracle(DBQS["provider_item_counts"].format(fday=fday, lday=lday)).rename(columns={"provider_id": "Provider", "cnt": "Count"})
@@ -332,7 +332,7 @@ with cols[2]:
 cols = tbs[7].columns((6, 4, 4, 3))
 with cols[0]:
     st.caption("Daily Activity")
-    st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Ready": "{:,.0f}", "Claimed": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
+    st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Packed": "{:,.0f}", "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
     st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
