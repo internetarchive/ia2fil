@@ -58,6 +58,7 @@ DBQS = {
             FROM published_deals
 	    WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
+            AND entry_created BETWEEN '{fday}' AND '{lday}'
             --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
         ) sq;
     """,
@@ -68,6 +69,7 @@ DBQS = {
             FROM published_deals
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
+            AND entry_created BETWEEN '{fday}' AND '{lday}'
             ORDER BY piece_id, entry_created
         ) sq
         GROUP BY DATE_TRUNC('day', sq.entry_created);
@@ -79,6 +81,7 @@ DBQS = {
             FROM published_deals
 	    WHERE provider_id = '02011071'
             AND (status = 'active' OR status = 'published')
+            AND entry_created BETWEEN '{fday}' AND '{lday}'
             /* AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00') */ /* uncomment this to search before stated date */
         ) sq;
     """,
@@ -86,6 +89,7 @@ DBQS = {
         SELECT provider_id, count(1) AS cnt
         FROM published_deals
         WHERE client_id = '01131298'
+        AND entry_created BETWEEN '{fday}' AND '{lday}'
         GROUP BY provider_id
         ORDER BY cnt DESC;
     """,
@@ -93,6 +97,7 @@ DBQS = {
         SELECT status, count(1)
         FROM published_deals
         WHERE client_id = '01131298'
+        AND entry_created BETWEEN '{fday}' AND '{lday}'
         GROUP BY status;
     """,
     "copies_count_size": """
@@ -102,6 +107,7 @@ DBQS = {
             FROM published_deals
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
+            AND entry_created BETWEEN '{fday}' AND '{lday}'
             GROUP BY piece_id
         ) sq
         GROUP BY copies;
@@ -114,6 +120,7 @@ DBQS = {
             FROM published_deals
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
+            AND entry_created BETWEEN '{fday}' AND '{lday}'
             --AND entry_created > '2023-03-22 00:00:00.00'
         );
     """,
@@ -122,6 +129,7 @@ DBQS = {
         FROM published_deals
         WHERE client_id = '01131298'
         AND status = 'terminated'
+        AND entry_created BETWEEN '{fday}' AND '{lday}'
         GROUP BY reason;
     """,
     "index_age": """
@@ -186,8 +194,10 @@ if not len(iad):
     st.warning("No files found!")
     st.stop()
 
-fdf, ldf = (datetime.utcfromtimestamp(k.astype(datetime)/1_000_000_000).date() for k in iad.CARTime.sort_values().iloc[[0, -1]].values[:])
+fdf = iad.CARTime.min().date()
+ldf = datetime.today().date()
 fday, lday = st.slider("Date Range", value=(fdf, ldf), min_value=fdf, max_value=ldf)
+lday = lday + timedelta(1)
 
 iad = iad[(iad.CARTime>=pd.to_datetime(fday)) & (iad.CARTime<=pd.to_datetime(lday))]
 
@@ -210,8 +220,8 @@ c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 
 tdlt = (date.today() - dkey).days
 
-cp_ct_sz = load_oracle(DBQS["copies_count_size"]).rename(columns={"copies": "Copies", "count": "Count", "size": "Size"})
-dsz = load_oracle(DBQS["active_or_published_daily_size"]).rename(columns={"dy": "PTime", "size": "Claimed", "pieces": "Pieces"})
+cp_ct_sz = load_oracle(DBQS["copies_count_size"].format(fday=fday, lday=lday)).rename(columns={"copies": "Copies", "count": "Count", "size": "Size"})
+dsz = load_oracle(DBQS["active_or_published_daily_size"].format(fday=fday, lday=lday)).rename(columns={"dy": "PTime", "size": "Claimed", "pieces": "Pieces"})
 dsz["PTime"] = pd.to_datetime(dsz.PTime).dt.tz_localize(None)
 msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Ready"}).sort_values(by="Day", ascending=False).fillna(0)
 
@@ -219,17 +229,17 @@ cols = st.columns(4)
 cols[0].metric("Ready", humanize(upld.Size.sum()), f"{len(upld):,} files", help="Total ready CAR files in the Internet Archive")
 cols[1].metric("Claimed", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/ready pieces in the Filecoin network")
 cols[2].metric("Resilient", humanize(cp_ct_sz[cp_ct_sz.Copies>=4].Size.sum()), f"{cp_ct_sz[cp_ct_sz.Copies>=4].Count.sum():,.0f} files", help="Unique active/ready pieces with at least four copies in the Filecoin network")
-cols[3].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} {'days' if tdlt > 1 else 'day'} ago" if tdlt else "today", delta_color="off", help="Last record day in the Spade CSV files")
+cols[3].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} days ago" if tdlt > 1 else "yesterday" if tdlt else "today", delta_color="off", help="Last record day in the Spade CSV files")
 
 cols = st.columns(4)
 rt = msz.set_index("Day").sort_index()
-last = rt.last("2D")
+last = rt.last("D")
 cols[0].metric("Last Day", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last day")
-last = rt.last("8D")
+last = rt.last("7D")
 cols[1].metric("Last Week", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last week")
-last = rt.last("31D")
+last = rt.last("30D")
 cols[2].metric("Last Month", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last month")
-last = rt.last("366D")
+last = rt.last("365D")
 cols[3].metric("Last Year", humanize(last.Ready.sum()), humanize(last.Claimed.sum()), help="Total ready and claimed sizes of unique files of the last year")
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
@@ -247,44 +257,74 @@ ch = alt.layer(
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[0].altair_chart(ch, use_container_width=True)
 
-ch = alt.Chart(t).mark_bar().encode(
-    x="utcyearmonthdate(PTime):T",
-    y=alt.Y("sum(Size):Q", axis=alt.Axis(format=",.0f")),
-    tooltip=[alt.Tooltip("utcyearmonthdate(PTime):T", title="Day"), alt.Tooltip("sum(Size):Q", format=",.0f", title="Size")]
+ch = alt.Chart(msz, height=250).mark_bar().encode(
+    x=alt.X("utcyearmonthdate(Day):T", title="Day"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    tooltip=[alt.Tooltip("utcyearmonthdate(Day):T", title="Day"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
+).interactive(bind_y=False).configure_axisX(grid=False)
+tbs[1].altair_chart(ch, use_container_width=True)
+ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
+    x=alt.X("utcyearmonthdate(Day):T", title="Day"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    tooltip=[alt.Tooltip("utcyearmonthdate(Day):T", title="Day"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[1].altair_chart(ch, use_container_width=True)
 
-ch = alt.Chart(t).mark_bar().encode(
-    x="yearweek(PTime):T",
-    y=alt.Y("sum(Size):Q", axis=alt.Axis(format=",.0f")),
-    tooltip=[alt.Tooltip("yearweek(PTime):T", title="Week"), alt.Tooltip("sum(Size):Q", format=",.0f", title="Size")]
+ch = alt.Chart(msz, height=250).mark_bar().encode(
+    x=alt.X("yearweek(Day):T", title="Week"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    tooltip=[alt.Tooltip("yearweek(Day):T", title="Week"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
+).interactive(bind_y=False).configure_axisX(grid=False)
+tbs[2].altair_chart(ch, use_container_width=True)
+ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
+    x=alt.X("yearweek(Day):T", title="Week"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    tooltip=[alt.Tooltip("yearweek(Day):T", title="Week"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[2].altair_chart(ch, use_container_width=True)
 
-ch = alt.Chart(t).mark_bar().encode(
-    x="yearmonth(PTime):O",
-    y=alt.Y("sum(Size):Q", axis=alt.Axis(format=",.0f")),
-    tooltip=[alt.Tooltip("yearmonth(PTime):O", title="Month"), alt.Tooltip("sum(Size):Q", format=",.0f", title="Size")]
+ch = alt.Chart(msz, height=250).mark_bar().encode(
+    x=alt.X("yearmonth(Day):T", title="Month"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    tooltip=[alt.Tooltip("yearmonth(Day):T", title="Month"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
+).interactive(bind_y=False).configure_axisX(grid=False)
+tbs[3].altair_chart(ch, use_container_width=True)
+ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
+    x=alt.X("yearmonth(Day):T", title="Month"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    tooltip=[alt.Tooltip("yearmonth(Day):T", title="Month"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[3].altair_chart(ch, use_container_width=True)
 
-ch = alt.Chart(t).mark_bar().encode(
-    x="yearquarter(PTime):O",
-    y=alt.Y("sum(Size):Q", axis=alt.Axis(format=",.0f")),
-    tooltip=[alt.Tooltip("yearquarter(PTime):O", title="Quarter"), alt.Tooltip("sum(Size):Q", format=",.0f", title="Size")]
+ch = alt.Chart(msz, height=250).mark_bar().encode(
+    x=alt.X("yearquarter(Day):T", title="Quarter"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    tooltip=[alt.Tooltip("yearquarter(Day):T", title="Quarter"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
+).interactive(bind_y=False).configure_axisX(grid=False)
+tbs[4].altair_chart(ch, use_container_width=True)
+ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
+    x=alt.X("yearquarter(Day):T", title="Quarter"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    tooltip=[alt.Tooltip("yearquarter(Day):T", title="Quarter"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[4].altair_chart(ch, use_container_width=True)
 
-ch = alt.Chart(t).mark_bar().encode(
-    x="year(PTime):O",
-    y=alt.Y("sum(Size):Q", axis=alt.Axis(format=",.0f")),
-    tooltip=[alt.Tooltip("year(PTime):O", title="Year"), alt.Tooltip("sum(Size):Q", format=",.0f", title="Size")]
+ch = alt.Chart(msz, height=250).mark_bar().encode(
+    x=alt.X("year(Day):T", title="Year"),
+    y=alt.Y("sum(Ready):Q", axis=alt.Axis(format=",.0f"), title="Ready Size"),
+    tooltip=[alt.Tooltip("year(Day):T", title="Year"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
+).interactive(bind_y=False).configure_axisX(grid=False)
+tbs[5].altair_chart(ch, use_container_width=True)
+ch = alt.Chart(msz, height=250).mark_bar(color="red").encode(
+    x=alt.X("year(Day):T", title="Year"),
+    y=alt.Y("sum(Claimed):Q", axis=alt.Axis(format=",.0f"), title="Claimed Size"),
+    tooltip=[alt.Tooltip("year(Day):T", title="Year"), alt.Tooltip("sum(Ready):Q", format=",.0f", title="Ready"), alt.Tooltip("sum(Claimed):Q", format=",.0f", title="Claimed")]
 ).interactive(bind_y=False).configure_axisX(grid=False)
 tbs[5].altair_chart(ch, use_container_width=True)
 
-pro_ct = load_oracle(DBQS["provider_item_counts"]).rename(columns={"provider_id": "Provider", "cnt": "Count"})
-dl_st_ct = load_oracle(DBQS["deal_count_by_status"]).rename(columns={"status": "Status", "count": "Count"})
-trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"]).rename(columns={"reason": "Reason", "count": "Count"}).replace("deal no longer part of market-actor state", "expired").replace("entered on-chain final-slashed state", "slashed")
+pro_ct = load_oracle(DBQS["provider_item_counts"].format(fday=fday, lday=lday)).rename(columns={"provider_id": "Provider", "cnt": "Count"})
+dl_st_ct = load_oracle(DBQS["deal_count_by_status"].format(fday=fday, lday=lday)).rename(columns={"status": "Status", "count": "Count"})
+trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"].format(fday=fday, lday=lday)).rename(columns={"reason": "Reason", "count": "Count"}).replace("deal no longer part of market-actor state", "expired").replace("entered on-chain final-slashed state", "slashed")
 idx_age = load_oracle(DBQS["index_age"])
 
 cols = tbs[6].columns((3, 2, 2))
