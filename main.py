@@ -1,51 +1,21 @@
 #!/usr/bin/env python3
 
-import glob
 import os
-
-from collections import defaultdict
-from datetime import datetime, date, timedelta, timezone
-
-import psycopg2
+from datetime import datetime, timedelta, timezone
 
 import altair as alt
-import streamlit as st
 import pandas as pd
+import psycopg2
+import streamlit as st
 
-from internetarchive import download, search_items
-
-TITLE = "Internet Archive Data to Filecoin"
-ICON = "https://archive.org/favicon.ico"
+TITLE = "Data Onboarding to Filecoin"
+ICON = "./assets/filecoin-symbol.png"
 SPADECACHE = "/tmp/spadecsvcache"
 
 os.makedirs(SPADECACHE, exist_ok=True)
 
 st.set_page_config(page_title=TITLE, page_icon=ICON, layout="wide")
 st.title(TITLE)
-
-COLS = {
-    "ALL": "ALL",
-    "EndOfTerm2016PreinaugurationCrawls": "End Of Term 2016 Pre-Inauguration Crawls",
-    "EndOfTerm2016PostinaugurationCrawls": "End of Term 2016 Post-Inauguration Crawls",
-    "EndOfTerm2016UNTCrawls": "End Of Term 2016 UNT Crawls",
-    "EndOfTerm2016LibraryofCongressCrawls": "End Of Term 2016 Library of Congress Crawls",
-    "EndOfTerm2020PreElectionCrawls": "End Of Term 2020 Pre Election to Inauguration Crawls",
-    "EndOfTerm2020PostInaugurationCrawls": "End Of Term 2020 Post Inauguration Crawls",
-    "EndOfTerm2020UNTCrawls": "End of Term 2020 UNT Crawls",
-    "archiveteam_ftpgov": "Archive Team Contributed GOV FTP Grabs",
-    "prelinger": "Prelinger Archives",
-    "prelingerhomemovies": "Prelinger Archives Home Movies",
-}
-
-FINISHED = {
-    "EndOfTerm2016PreinaugurationCrawls",
-    "EndOfTerm2016PostinaugurationCrawls",
-    "EndOfTerm2016UNTCrawls",
-    "EndOfTerm2016LibraryofCongressCrawls",
-    "archiveteam_ftpgov",
-    "prelinger",
-    "prelingerhomemovies"
-}
 
 DBSP = "SET SEARCH_PATH = naive;"
 DBQS = {
