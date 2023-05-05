@@ -27,6 +27,7 @@ st.title(TITLE)
 
 COLS = {
     "ALL": "ALL",
+    "EndOfTerm2012WebCrawls": "End of Term 2012 Web Crawls",
     "EndOfTerm2016PreinaugurationCrawls": "End Of Term 2016 Pre-Inauguration Crawls",
     "EndOfTerm2016PostinaugurationCrawls": "End of Term 2016 Post-Inauguration Crawls",
     "EndOfTerm2016UNTCrawls": "End Of Term 2016 UNT Crawls",
