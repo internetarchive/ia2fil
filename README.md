@@ -1,11 +1,11 @@
-# Internet Archive Data to Filecoin
+# Filecoin Data Onboarding Report
 
-This dashboard shows progress of replicating Internet Archive items to Filecoin.
+This dashboard shows the rate of data onboarding to Filecoin for a specific client.
 
 To run it locally (in Docker), clone this repository and build a docker image:
 
 ```
-$ docker image build -t ia2fil .
+$ docker image build -t fil-onboarding-report .
 ```
 
 Rename `.env.example` file to `.env` and update missing values.
@@ -13,7 +13,7 @@ Rename `.env.example` file to `.env` and update missing values.
 Run a container from the freshly built Docker image:
 
 ```
-$ docker container run --rm -it -p 8501:8501 --env-file=.env ia2fil
+$ docker container run --rm -it -p 8501:8501 --env-file=.env fil-onboarding-report
 ```
 
 Alternatively, use Docker Compose:
