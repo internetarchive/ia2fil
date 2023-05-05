@@ -139,6 +139,18 @@ DBQS = {
     """
 }
 
+DEALSTMAP = {
+    "active": "teal",
+    "published": "orange",
+    "terminated": "red"
+}
+REASONMAP = {
+    "deal no longer part of market-actor state": "expired",
+    "entered on-chain final-slashed state": "slashed",
+    "containing sector missed expected sealing epoch": "missed"
+}
+REASONCOL = ["orange", "red", "gray"]
+
 
 @st.cache_data(ttl=3600, show_spinner="Loading File Metadata...")
 def load_data(col):
@@ -304,7 +316,7 @@ tbs[5].altair_chart(ch, use_container_width=True)
 
 pro_ct = load_oracle(DBQS["provider_item_counts"].format(fday=fday, lday=lday)).rename(columns={"provider_id": "Provider", "cnt": "Count"})
 dl_st_ct = load_oracle(DBQS["deal_count_by_status"].format(fday=fday, lday=lday)).rename(columns={"status": "Status", "count": "Count"})
-trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"].format(fday=fday, lday=lday)).rename(columns={"reason": "Reason", "count": "Count"}).replace("deal no longer part of market-actor state", "expired").replace("entered on-chain final-slashed state", "slashed")
+trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"].format(fday=fday, lday=lday)).rename(columns={"reason": "Reason", "count": "Count"}).replace({"Reason": REASONMAP})
 idx_age = load_oracle(DBQS["index_age"])
 
 cols = tbs[6].columns((3, 2, 2))
@@ -318,14 +330,14 @@ with cols[0]:
 with cols[1]:
     ch = alt.Chart(dl_st_ct).mark_arc().encode(
         theta="Count:Q",
-        color=alt.Color("Status:N", scale=alt.Scale(domain=["active", "published", "terminated"], range=["teal", "orange", "red"]), legend=alt.Legend(title="Deal Status", orient="top")),
+        color=alt.Color("Status:N", scale=alt.Scale(domain=list(DEALSTMAP), range=list(DEALSTMAP.values())), legend=alt.Legend(title="Deal Status", orient="top")),
         tooltip=["Status:N", alt.Tooltip("Count:Q", format=",")]
     )
     st.altair_chart(ch, use_container_width=True)
 with cols[2]:
     ch = alt.Chart(trm_ct).mark_arc().encode(
         theta="Count:Q",
-        color=alt.Color("Reason:N", scale=alt.Scale(domain=["expired", "slashed"], range=["orange", "red"]), legend=alt.Legend(title="Termination Reason", orient="top")),
+        color=alt.Color("Reason:N", scale=alt.Scale(domain=list(REASONMAP.values()), range=REASONCOL), legend=alt.Legend(title="Termination Reason", orient="top")),
         tooltip=["Reason:N", alt.Tooltip("Count:Q", format=",")]
     )
     st.altair_chart(ch, use_container_width=True)
@@ -333,7 +345,7 @@ with cols[2]:
 cols = tbs[7].columns((6, 4, 4, 3))
 with cols[0]:
     st.caption("Daily Activity")
-    st.dataframe(msz.style.format({"Day":lambda t: t.strftime("%Y-%m-%d"), "Packed": "{:,.0f}", "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
+    st.dataframe(msz.style.format({"Day": lambda t: t.strftime("%Y-%m-%d"), "Packed": "{:,.0f}", "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
     st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
