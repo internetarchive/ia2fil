@@ -99,12 +99,26 @@ def temporal_bars(data, bin, period, ylim, state):
     ).interactive(bind_y=False).configure_axisX(grid=False)
 
 
+def calculate_mean_std_for_last_month(df, col):
+    last_n = 30
+    mean = df[col].tail(last_n).mean()
+    std = df[col].tail(last_n).std()
+
+    return mean, std
+
+
 ldf = datetime.today().date()
 fdf = ldf.replace(year=ldf.year - 1)
 fday, lday = st.slider("Date Range", value=(fdf, ldf), min_value=fdf, max_value=ldf)
 lday = lday + timedelta(1)
 
-client_id = st.text_input("Client id", '01131298')
+form = st.form(key='inputs')
+c1, c2 = st.columns(2)
+with c1:
+    client_id = st.text_input("Client id", '01131298')
+with c2:
+    target_size = st.text_input("Onboarding target (TB)",
+                                str(1024))  # Defaults to 1 PiB for now, change it to LDN
 
 cp_ct_sz = load_oracle(DBQS["copies_count_size"].format(client_id=client_id, fday=fday, lday=lday)).rename(
     columns={"copies": "Copies", "count": "Count", "size": "Size"})
@@ -137,6 +151,17 @@ last = rt.last("365D")
 cols[3].metric("Onboarded Last Year", humanize(last.Onchain.sum()),
                help="Total packed and on-chain sizes of unique files of the last year")
 
+mean, std = calculate_mean_std_for_last_month(dsz, 'Onchain')
+current_size = dsz['Onchain'].sum()
+t_delta = (int(target_size) * 1024 - current_size) / mean
+est_end_date = lday + timedelta(days=t_delta)
+
+cols = st.columns(3)
+cols[0].metric("Expected finish date", str(est_end_date),
+               help="Expected finish date based on the mean daily onboarding rate over last 30 days")
+cols[1].metric("Mean daily onboarding rate over last 30 days", humanize(mean))
+cols[2].metric("Standard Deviation of daily onboarding rate over last 30 days", humanize(std))
+
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
 rtv = rt[["Onchain"]]
@@ -148,14 +173,20 @@ ranges = {
     "Year": rtv.groupby(pd.Grouper(freq="Y")).sum().to_numpy().max()
 }
 
+target_line = pd.DataFrame({
+    'Day': [lday, est_end_date],
+    'TotalOnChain': [current_size, int(target_size) * 1024]
+})
+target_line_plot = alt.Chart(target_line).mark_line(color='black', strokeDash=[5, 5]).encode(x="Day:T",
+                                                                                             y="TotalOnChain:Q")
 base = alt.Chart(dsz).encode(x="Day:T")
 ch = alt.layer(
     base.mark_line(size=4, color="#ff2b2b").transform_window(
         sort=[{"field": "Day"}],
-        TotalOnchain="sum(Onchain)"
-    ).encode(y="TotalOnchain:Q")
+        TotalOnChain="sum(Onchain)"
+    ).encode(y="TotalOnChain:Q"),
 ).interactive(bind_y=False).configure_axisX(grid=False)
-tbs[0].altair_chart(ch, use_container_width=True)
+tbs[0].altair_chart(ch + target_line_plot, use_container_width=True)
 
 ch = temporal_bars(dsz, "utcyearmonthdate", "Day", ranges["Day"], "Onchain")
 tbs[1].altair_chart(ch, use_container_width=True)
@@ -213,7 +244,7 @@ with cols[0]:
     st.caption("Daily Activity")
     st.dataframe(dsz.style.format(
         {"Day": lambda t: t.strftime("%Y-%m-%d"), "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}),
-                 use_container_width=True)
+        use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
     st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
