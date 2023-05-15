@@ -99,12 +99,11 @@ def temporal_bars(data, bin, period, ylim, state):
     ).interactive(bind_y=False).configure_axisX(grid=False)
 
 
-def calculate_mean_std_for_last_month(df, col):
-    last_n = 30
-    mean = df[col].tail(last_n).mean()
-    std = df[col].tail(last_n).std()
+def calculate_mean_std_for_last_n_days(df, col, n=14):
+    window = df[col].tail(n + 1).head(n) # ignore yesterday
 
-    return mean, std
+    return window.mean(), window.std()
+
 
 
 ldf = datetime.today().date()
@@ -112,13 +111,7 @@ fdf = ldf.replace(year=ldf.year - 1)
 fday, lday = st.slider("Date Range", value=(fdf, ldf), min_value=fdf, max_value=ldf)
 lday = lday + timedelta(1)
 
-form = st.form(key='inputs')
-c1, c2 = st.columns(2)
-with c1:
-    client_id = st.text_input("Client id", '01131298')
-with c2:
-    target_size = st.text_input("Onboarding target (TB)",
-                                str(1024))  # Defaults to 1 PiB for now, change it to LDN
+client_id = st.text_input("Client id", '01131298')
 
 cp_ct_sz = load_oracle(DBQS["copies_count_size"].format(client_id=client_id, fday=fday, lday=lday)).rename(
     columns={"copies": "Copies", "count": "Count", "size": "Size"})
@@ -151,17 +144,6 @@ last = rt.last("365D")
 cols[3].metric("Onboarded Last Year", humanize(last.Onchain.sum()),
                help="Total packed and on-chain sizes of unique files of the last year")
 
-mean, std = calculate_mean_std_for_last_month(dsz, 'Onchain')
-current_size = dsz['Onchain'].sum()
-t_delta = (int(target_size) * 1024 - current_size) / mean
-est_end_date = lday + timedelta(days=t_delta)
-
-cols = st.columns(3)
-cols[0].metric("Expected finish date", str(est_end_date),
-               help="Expected finish date based on the mean daily onboarding rate over last 30 days")
-cols[1].metric("Mean daily onboarding rate over last 30 days", humanize(mean))
-cols[2].metric("Standard Deviation of daily onboarding rate over last 30 days", humanize(std))
-
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
 rtv = rt[["Onchain"]]
@@ -173,12 +155,6 @@ ranges = {
     "Year": rtv.groupby(pd.Grouper(freq="Y")).sum().to_numpy().max()
 }
 
-target_line = pd.DataFrame({
-    'Day': [lday, est_end_date],
-    'TotalOnChain': [current_size, int(target_size) * 1024]
-})
-target_line_plot = alt.Chart(target_line).mark_line(color='black', strokeDash=[5, 5]).encode(x="Day:T",
-                                                                                             y="TotalOnChain:Q")
 base = alt.Chart(dsz).encode(x="Day:T")
 ch = alt.layer(
     base.mark_line(size=4, color="#ff2b2b").transform_window(
@@ -186,7 +162,7 @@ ch = alt.layer(
         TotalOnChain="sum(Onchain)"
     ).encode(y="TotalOnChain:Q"),
 ).interactive(bind_y=False).configure_axisX(grid=False)
-tbs[0].altair_chart(ch + target_line_plot, use_container_width=True)
+tbs[0].altair_chart(ch, use_container_width=True)
 
 ch = temporal_bars(dsz, "utcyearmonthdate", "Day", ranges["Day"], "Onchain")
 tbs[1].altair_chart(ch, use_container_width=True)
@@ -258,3 +234,60 @@ with cols[3]:
     st.caption("Termination Reason")
     st.dataframe(trm_ct.set_index(trm_ct.columns[0]), use_container_width=True)
     st.write(f"_Updated: {(datetime.now(timezone.utc) - idx_age.iloc[0, 0]).total_seconds() / 60:,.0f} minutes ago._")
+
+st.header("Projection")
+
+form = st.form(key='projection')
+c1, c2, c3 = st.columns(3)
+with c1:
+    target_size = st.number_input("Full dataset size (TB)", min_value=0, value=1024)  # Defaults to 1 PiB for now, change it to LDN
+with c2:
+    last_n = st.number_input("Number of days for window", min_value=2, value=14, help="Average onboarding rate is calculated over last n days, where n is the input of this field")
+with c3:
+    onb_rate = st.number_input("Target onboarding rate (TB)/day", min_value=0, value=10)
+
+mean, std = calculate_mean_std_for_last_n_days(dsz, 'Onchain', last_n)
+current_size = dsz['Onchain'].sum()
+t_delta = (target_size * 1024 - current_size) / mean
+est_end_date = lday + timedelta(days=t_delta)
+
+target_t_delta = (target_size * 1024 - current_size) / (int(onb_rate) * 1024)
+target_end_date = lday + timedelta(days=target_t_delta)
+
+cols = st.columns(4)
+cols[0].metric("Expected finish date using mean onboarding rate", str(est_end_date),
+               help="Expected finish date based on the mean daily onboarding rate over last {last_n} days".format(last_n=last_n))
+cols[1].metric("Expected finish date using target onboarding rate", str(target_end_date),
+               help="Expected finish date based on the target daily onboarding rate")
+cols[2].metric("Mean daily onboarding rate over last {last_n} days".format(last_n=last_n), humanize(mean))
+cols[3].metric("Standard Deviation of daily onboarding rate over last {last_n} days".format(last_n=last_n), humanize(std))
+
+
+cols = st.columns(1)
+
+estimated_line = pd.DataFrame({
+    'Day': [lday, est_end_date],
+    'TotalOnChain': [current_size, int(target_size) * 1024],
+
+})
+
+target_line = pd.DataFrame({
+    'Day': [lday, target_end_date],
+    'TotalOnChain': [current_size, int(target_size) * 1024]
+})
+
+# Create the base chart with color encoding and legend title
+base = alt.Chart(dsz).mark_line(size=4, color="#ff2b2b").transform_window(
+        sort=[{"field": "Day"}],
+        TotalOnChain="sum(Onchain)"
+    ).encode(x="Day:T", y="TotalOnChain:Q")
+
+# Create the estimated and target lines with color encoding
+est_line_plot = alt.Chart(estimated_line).mark_line(color='green').encode(x="Day:T", y="TotalOnChain:Q")
+target_line_plot = alt.Chart(target_line).mark_line(color='blue').encode(x="Day:T", y="TotalOnChain:Q")
+
+# Layer the three components with the base chart, estimated line, and target line
+ch = alt.layer(base, est_line_plot, target_line_plot).configure_axisX(grid=False)
+
+cols[0].altair_chart(ch, use_container_width=True)
+
