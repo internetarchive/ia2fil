@@ -38,6 +38,7 @@ COLS = {
     "archiveteam_ftpgov": "Archive Team Contributed GOV FTP Grabs",
     "prelinger": "Prelinger Archives",
     "prelingerhomemovies": "Prelinger Archives Home Movies",
+    "commoncrawl": "Common Crawl",
 }
 
 FINISHED = {
