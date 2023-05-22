@@ -79,7 +79,7 @@ DBQS = {
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
             AND entry_created BETWEEN '{fday}' AND '{lday}'
-            ORDER BY piece_id, entry_created
+            ORDER BY piece_id, entry_created DESC
         ) sq
         GROUP BY DATE_TRUNC('day', sq.entry_created);
     """,
