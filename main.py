@@ -53,12 +53,19 @@ FINISHED = {
 
 DBSP = "SET SEARCH_PATH = naive;"
 DBQS = {
+    "active_or_published_non_dedup_total_size": """
+        SELECT SUM ((1::BIGINT << claimed_log2_size) / 1024 / 1024 / 1024) AS total
+        FROM published_deals
+        WHERE client_id = '01131298'
+        AND (status = 'active' OR status = 'published')
+        AND entry_created BETWEEN '{fday}' AND '{lday}';
+    """,
     "active_or_published_total_size": """
         SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << sq.claimed_log2_size))
         FROM (
             SELECT DISTINCT(piece_id), claimed_log2_size
             FROM published_deals
-	    WHERE client_id = '01131298'
+            WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
             AND entry_created BETWEEN '{fday}' AND '{lday}'
             --AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00')
@@ -81,7 +88,7 @@ DBQS = {
         FROM (
             SELECT DISTINCT(decoded_label), claimed_log2_size
             FROM published_deals
-	    WHERE provider_id = '02011071'
+            WHERE provider_id = '02011071'
             AND (status = 'active' OR status = 'published')
             AND entry_created BETWEEN '{fday}' AND '{lday}'
             /* AND start_epoch < epoch_from_ts('2022-12-13 20:07:00+00') */ /* uncomment this to search before stated date */
@@ -186,6 +193,8 @@ def load_oracle(dbq):
 
 
 def humanize(s):
+    if s >= 1024 * 1024:
+        return f"{s/1024/1024:,.1f} PB"
     if s >= 1024:
         return f"{s/1024:,.1f} TB"
     return f"{s:,.1f} GB"
@@ -244,6 +253,7 @@ c = d[["Collection", "Size"]].groupby("Collection").sum().reset_index()
 
 tdlt = (date.today() - dkey).days
 
+dup_sz = load_oracle(DBQS["active_or_published_non_dedup_total_size"].format(fday=fday, lday=lday))
 cp_ct_sz = load_oracle(DBQS["copies_count_size"].format(fday=fday, lday=lday)).rename(columns={"copies": "Copies", "count": "Count", "size": "Size"})
 dsz = load_oracle(DBQS["active_or_published_daily_size"].format(fday=fday, lday=lday)).rename(columns={"dy": "PTime", "size": "Onchain", "pieces": "Pieces"})
 dsz["PTime"] = pd.to_datetime(dsz.PTime).dt.tz_localize(None)
@@ -251,7 +261,8 @@ msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how
 
 cols = st.columns(4)
 cols[0].metric("Packed", humanize(upld.Size.sum()), f"{len(upld):,} files", help="Total packed CAR files in the Internet Archive")
-cols[1].metric("On-chain", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/published pieces in the Filecoin network")
+#cols[1].metric("On-chain", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/published pieces in the Filecoin network")
+cols[1].metric("On-chain", humanize(cp_ct_sz.Size.sum()), f"{humanize(dup_sz.total[0])} total", help="Unique and total active/published sizes in the Filecoin network")
 cols[2].metric("4+ Replications", humanize(cp_ct_sz[cp_ct_sz.Copies>=4].Size.sum()), f"{cp_ct_sz[cp_ct_sz.Copies>=4].Count.sum():,.0f} files", help="Unique active/published pieces with at least four replications in the Filecoin network")
 cols[3].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} days ago" if tdlt > 1 else "yesterday" if tdlt else "today", delta_color="off", help="Last record day in the Spade CSV files")
 
