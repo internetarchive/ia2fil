@@ -53,6 +53,11 @@ FINISHED = {
 
 DBSP = "SET SEARCH_PATH = naive;"
 DBQS = {
+    "tbl_desc": """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_name = 'published_deals';
+    """,
     "active_or_published_non_dedup_total_size": """
         SELECT SUM ((1::BIGINT << claimed_log2_size) / 1024 / 1024 / 1024) AS total
         FROM published_deals
@@ -390,3 +395,19 @@ st.altair_chart((ch + lbl).configure_axisX(grid=False), use_container_width=True
 
 if st.button("Show All Files", type="primary"):
     st.dataframe(d, use_container_width=True)
+
+if st.experimental_get_query_params().get("debugkey", [None])[0] != os.getenv("DEBUGKEY", ""):
+    st.stop()
+
+"## Filoracle SQL Query"
+
+with st.expander("Table Schema"):
+    st.code(DBQS["tbl_desc"], language="sql")
+    tbl_desc = load_oracle(DBQS["tbl_desc"])
+    st.dataframe(tbl_desc, use_container_width=True)
+
+qry = st.text_area("Custom SQL Query", height=150, placeholder="SELECT COUNT(*) FROM published_deals;")
+if qry:
+    res = load_oracle(qry)
+    st.dataframe(res.style.format())
+    st.write(f"_{len(res)} records_")
