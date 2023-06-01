@@ -77,16 +77,28 @@ DBQS = {
         ) sq;
     """,
     "active_or_published_daily_size": """
-        SELECT DATE_TRUNC('day', sq.entry_created) AS dy, SUM((1::BIGINT << sq.claimed_log2_size) / 1024 / 1024 / 1024) AS size, COUNT(sq.claimed_log2_size) AS pieces
+        SELECT sq2.dy AS dy, sq3.ttl AS total, sq2.size AS size, sq2.pieces AS pieces
         FROM (
-            SELECT DISTINCT ON(piece_id) piece_id, entry_created, claimed_log2_size
+            SELECT sq.dy AS dy, SUM((1::BIGINT << sq.claimed_log2_size) / 1024 / 1024 / 1024) AS size, COUNT(sq.claimed_log2_size) AS pieces
+            FROM (
+                SELECT DISTINCT ON(piece_id) piece_id, DATE_TRUNC('day', entry_created) AS dy, claimed_log2_size
+                FROM published_deals
+                WHERE client_id = '01131298'
+                AND (status = 'active' OR status = 'published')
+                AND entry_created BETWEEN '{fday}' AND '{lday}'
+                ORDER BY piece_id, entry_created
+            ) sq
+            GROUP BY sq.dy
+        )  sq2
+        INNER JOIN (
+            SELECT DATE_TRUNC('day', entry_created) AS dy, SUM((1::BIGINT << claimed_log2_size) / 1024 / 1024 / 1024) AS ttl
             FROM published_deals
             WHERE client_id = '01131298'
             AND (status = 'active' OR status = 'published')
             AND entry_created BETWEEN '{fday}' AND '{lday}'
-            ORDER BY piece_id, entry_created DESC
-        ) sq
-        GROUP BY DATE_TRUNC('day', sq.entry_created);
+            GROUP BY DATE_TRUNC('day', entry_created)
+        ) sq3
+        ON sq2.dy = sq3.dy;
     """,
     "active_or_published_label_size": """
         SELECT PG_SIZE_PRETTY (SUM (1::BIGINT << sq.claimed_log2_size))
@@ -260,7 +272,7 @@ tdlt = (date.today() - dkey).days
 
 dup_sz = load_oracle(DBQS["active_or_published_non_dedup_total_size"].format(fday=fday, lday=lday))
 cp_ct_sz = load_oracle(DBQS["copies_count_size"].format(fday=fday, lday=lday)).rename(columns={"copies": "Copies", "count": "Count", "size": "Size"})
-dsz = load_oracle(DBQS["active_or_published_daily_size"].format(fday=fday, lday=lday)).rename(columns={"dy": "PTime", "size": "Onchain", "pieces": "Pieces"})
+dsz = load_oracle(DBQS["active_or_published_daily_size"].format(fday=fday, lday=lday)).rename(columns={"dy": "PTime", "total": "Replication", "size": "Onchain", "pieces": "Pieces"})
 dsz["PTime"] = pd.to_datetime(dsz.PTime).dt.tz_localize(None)
 msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how="outer").rename(columns={"PTime": "Day", "Size": "Packed"}).sort_values(by="Day", ascending=False).fillna(0)
 
@@ -359,10 +371,10 @@ with cols[2]:
     )
     st.altair_chart(ch, use_container_width=True)
 
-cols = tbs[7].columns((6, 4, 4, 3))
+cols = tbs[7].columns((7, 4, 4, 3))
 with cols[0]:
     st.caption("Daily Activity")
-    st.dataframe(msz.style.format({"Day": lambda t: t.strftime("%Y-%m-%d"), "Packed": "{:,.0f}", "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
+    st.dataframe(msz.style.format({"Day": lambda t: t.strftime("%Y-%m-%d"), "Packed": "{:,.0f}", "Replication": "{:,.0f}", "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
     st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
