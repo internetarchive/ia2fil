@@ -51,6 +51,19 @@ FINISHED = {
     "prelingerhomemovies"
 }
 
+SPS = {
+    "f01886690": "Seal Storage",
+    "f01872811": "Telnyx",
+    "f01611097": "CES Group Inc ",
+    "f01851060": "PiKNiK",
+    "f01953925": "filcollins",
+    "f02028544": "Replikate LLC",
+    "f02055660": "W3i",
+    "f01942480": "VOT Group",
+    "f0223933": "Distributed Storage Solutions Limited",
+    "f01319368": "DIGITAL INCOME FUND PTY LTD",
+}
+
 DBSP = "SET SEARCH_PATH = naive;"
 DBQS = {
     "tbl_desc": """
@@ -112,7 +125,7 @@ DBQS = {
         ) sq;
     """,
     "provider_item_counts": """
-        SELECT provider_id, count(1) AS cnt
+        SELECT FORMAT('f0%s', provider_id) AS provider, count(1) AS cnt
         FROM published_deals
         WHERE client_id = '01131298'
         AND entry_created BETWEEN '{fday}' AND '{lday}'
@@ -343,7 +356,7 @@ tbs[5].altair_chart(ch, use_container_width=True)
 ch = temporal_bars(msz, "year", "Year", ranges["Year"], "Onchain")
 tbs[5].altair_chart(ch, use_container_width=True)
 
-pro_ct = load_oracle(DBQS["provider_item_counts"].format(fday=fday, lday=lday)).rename(columns={"provider_id": "Provider", "cnt": "Count"})
+pro_ct = load_oracle(DBQS["provider_item_counts"].format(fday=fday, lday=lday)).rename(columns={"provider": "Provider", "cnt": "Count"})
 dl_st_ct = load_oracle(DBQS["deal_count_by_status"].format(fday=fday, lday=lday)).rename(columns={"status": "Status", "count": "Count"})
 trm_ct = load_oracle(DBQS["terminated_deal_count_by_reason"].format(fday=fday, lday=lday)).rename(columns={"reason": "Reason", "count": "Count"}).replace({"Reason": REASONMAP})
 idx_age = load_oracle(DBQS["index_age"])
@@ -377,7 +390,7 @@ with cols[0]:
     st.dataframe(msz.style.format({"Day": lambda t: t.strftime("%Y-%m-%d"), "Packed": "{:,.0f}", "Replication": "{:,.0f}", "Onchain": "{:,.0f}", "Pieces": "{:,.0f}"}), use_container_width=True)
 with cols[1]:
     st.caption("Service Providers")
-    st.dataframe(pro_ct.style.format({"Provider": "f0{}", "Count": "{:,}"}), use_container_width=True)
+    st.dataframe(pro_ct.style.format({"Provider": lambda p: SPS.get(p, p), "Count": "{:,}"}), use_container_width=True)
 with cols[2]:
     st.caption("Active/Published Copies")
     st.dataframe(cp_ct_sz.set_index(cp_ct_sz.columns[0]).style.format({"Count": "{:,}", "Size": "{:,.0f}"}), use_container_width=True)
