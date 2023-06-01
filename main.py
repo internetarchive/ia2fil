@@ -278,21 +278,21 @@ msz = pd.merge(t[["PTime", "Size"]], dsz, left_on="PTime", right_on="PTime", how
 
 cols = st.columns(4)
 cols[0].metric("Packed", humanize(upld.Size.sum()), f"{len(upld):,} files", help="Total packed CAR files in the Internet Archive")
-#cols[1].metric("On-chain", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/published pieces in the Filecoin network")
-cols[1].metric("On-chain", humanize(cp_ct_sz.Size.sum()), f"{humanize(dup_sz.total[0])} total", help="Unique and total active/published sizes in the Filecoin network")
+#cols[1].metric("Onchain", humanize(cp_ct_sz.Size.sum()), f"{cp_ct_sz.Count.sum():,.0f} files", help="Total unique active/published pieces in the Filecoin network")
+cols[1].metric("Onchain", humanize(cp_ct_sz.Size.sum()), f"{humanize(dup_sz.total[0])} total", help="Unique and total active/published sizes in the Filecoin network")
 cols[2].metric("4+ Replications", humanize(cp_ct_sz[cp_ct_sz.Copies>=4].Size.sum()), f"{cp_ct_sz[cp_ct_sz.Copies>=4].Count.sum():,.0f} files", help="Unique active/published pieces with at least four replications in the Filecoin network")
 cols[3].metric("Recent Activity", dkey.strftime("%b %d"), f"{tdlt} days ago" if tdlt > 1 else "yesterday" if tdlt else "today", delta_color="off", help="Last record day in the Spade CSV files")
 
 cols = st.columns(4)
 rt = msz.set_index("Day").sort_index()
 last = rt.last("D")
-cols[0].metric("Last Day", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last day")
+cols[0].metric("Last Day", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and onchain sizes of unique files of the last day")
 last = rt.last("7D")
-cols[1].metric("Last Week", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last week")
+cols[1].metric("Last Week", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and onchain sizes of unique files of the last week")
 last = rt.last("30D")
-cols[2].metric("Last Month", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last month")
+cols[2].metric("Last Month", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and onchain sizes of unique files of the last month")
 last = rt.last("365D")
-cols[3].metric("Last Year", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and on-chain sizes of unique files of the last year")
+cols[3].metric("Last Year", humanize(last.Packed.sum()), humanize(last.Onchain.sum()), help="Total packed and onchain sizes of unique files of the last year")
 
 tbs = st.tabs(["Accumulated", "Daily", "Weekly", "Monthly", "Quarterly", "Yearly", "Status", "Data"])
 
