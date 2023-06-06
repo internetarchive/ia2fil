@@ -90,7 +90,7 @@ DBQS = {
         ) sq;
     """,
     "active_or_published_daily_size": """
-        SELECT sq2.dy AS dy, sq3.ttl AS total, sq2.size AS size, sq2.pieces AS pieces
+        SELECT sq3.dy AS dy, sq3.ttl AS total, sq2.size AS size, sq2.pieces AS pieces
         FROM (
             SELECT sq.dy AS dy, SUM((1::BIGINT << sq.claimed_log2_size) / 1024 / 1024 / 1024) AS size, COUNT(sq.claimed_log2_size) AS pieces
             FROM (
@@ -102,8 +102,8 @@ DBQS = {
                 ORDER BY piece_id, entry_created
             ) sq
             GROUP BY sq.dy
-        )  sq2
-        INNER JOIN (
+        ) sq2
+        FULL JOIN (
             SELECT DATE_TRUNC('day', entry_created) AS dy, SUM((1::BIGINT << claimed_log2_size) / 1024 / 1024 / 1024) AS ttl
             FROM published_deals
             WHERE client_id = '01131298'
