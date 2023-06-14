@@ -273,7 +273,7 @@ upld = d[~d["PTime"].isnull()]
 if not len(upld):
     st.warning(f"No files are packed from collection: `{col}`")
     st.stop()
-t = upld.resample("D", on="PTime").sum().reset_index()
+t = upld.resample("D", on="PTime").sum(numeric_only=True).reset_index()
 
 rt = upld[["PTime", "Size"]].set_index("PTime").sort_index()
 last = rt.last("D")
